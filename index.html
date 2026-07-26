@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Precision Math Sculptor — Square Clay Box</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f12;
+      color: #e8e8ec;
+      overflow: hidden;
+      height: 100vh;
+    }
+    #canvas-container {
+      position: absolute;
+      inset: 0;
+    }
+    #ui {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      width: 320px;
+      background: rgba(20, 20, 28, 0.92);
+      border: 1px solid #2a2a38;
+      border-radius: 12px;
+      padding: 16px;
+      backdrop-filter: blur(12px);
+      z-index: 10;
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+    }
+    h1 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #f0f0f5;
+    }
+    .subtitle {
+      font-size: 0.8rem;
+      color: #8888a0;
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 0.75rem;
+      color: #a0a0b8;
+      margin-bottom: 4px;
+      margin-top: 12px;
+    }
+    select, input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      background: #1a1a24;
+      border: 1px solid #333348;
+      color: #e0e0ec;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      font-family: inherit;
+    }
+    textarea {
+      height: 70px;
+      resize: vertical;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.8rem;
+    }
+    input[type="range"] {
+      width: 100%;
+      margin: 6px 0;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .row input[type="number"] { width: 70px; }
+    button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 9px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-primary {
+      background: #4f6ef7;
+      color: white;
+    }
+    .btn-primary:hover { background: #3b5bdb; }
+    .btn-secondary {
+      background: #2a2a38;
+      color: #ccc;
+    }
+    .btn-secondary:hover { background: #36364a; }
+    .btn-danger {
+      background: #3a2228;
+      color: #f08080;
+    }
+    .btn-danger:hover { background: #4a2a32; }
+    .value-display {
+      font-size: 0.75rem;
+      color: #888;
+      min-width: 36px;
+      text-align: right;
+    }
+    #info {
+      position: absolute;
+      bottom: 12px;
+      right: 16px;
+      font-size: 0.7rem;
+      color: #555;
+      z-index: 5;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <div id="ui">
+    <h1>Precision Math Sculptor</h1>
+    <div class="subtitle">Start with a square clay box → sculpt with math</div>
+
+    <label>Deformation Preset</label>
+    <select id="preset">
+      <option value="none">None (original clay box)</option>
+      <option value="sine">Sine Wave Ripple</option>
+      <option value="radial">Radial Bulge</option>
+      <option value="twist">Twist</option>
+      <option value="bend">Polynomial Bend</option>
+      <option value="sphere">Push toward Sphere</option>
+      <option value="noise">Math Noise</option>
+      <option value="custom">Custom Formula</option>
+    </select>
+
+    <div id="custom-formula" style="display:none;">
+      <label>Custom displacement (use x, y, z, t)</label>
+      <textarea id="formula" placeholder="Example: sin(x*3)*0.15  or  (x*x + z*z)*0.2">sin(x * 4 + t) * 0.12</textarea>
+      <div style="font-size:0.7rem;color:#666;margin-top:4px;">Returns scalar displacement along normal. Variables: x,y,z (position), t (time)</div>
+    </div>
+
+    <label>Strength <span class="value-display" id="strength-val">0.25</span></label>
+    <input type="range" id="strength" min="0" max="1.5" step="0.01" value="0.25" />
+
+    <label>Frequency / Scale <span class="value-display" id="freq-val">2.0</span></label>
+    <input type="range" id="freq" min="0.1" max="12" step="0.1" value="2.0" />
+
+    <label>Falloff / Sharpness <span class="value-display" id="falloff-val">1.0</span></label>
+    <input type="range" id="falloff" min="0.1" max="4" step="0.05" value="1.0" />
+
+    <button class="btn-primary" id="apply">Apply / Update Sculpt</button>
+    <button class="btn-secondary" id="reset">Reset to Square Clay Box</button>
+    <button class="btn-secondary" id="export">Export OBJ</button>
+  </div>
+
+  <div id="info">Drag to orbit · Scroll to zoom · Precision over freehand</div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
+
+    // --- Scene setup ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f0f12);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(2.8, 2.2, 3.4);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, 0, 0);
+
+    // Lights
+    const ambient = new THREE.AmbientLight(0x404050, 0.6);
+    scene.add(ambient);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.1);
+    dir.position.set(4, 6, 3);
+    scene.add(dir);
+    const fill = new THREE.DirectionalLight(0x8899ff, 0.35);
+    fill.position.set(-3, 2, -2);
+    scene.add(fill);
+
+    // --- The Clay Box (high-res cube) ---
+    const RES = 48; // subdivisions per edge → precision
+    let geometry = new THREE.BoxGeometry(1.6, 1.6, 1.6, RES, RES, RES);
+    const originalPositions = geometry.attributes.position.array.slice();
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xc4a882,          // warm clay color
+      roughness: 0.72,
+      metalness: 0.05,
+      flatShading: false,
+      side: THREE.DoubleSide
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    // Subtle wireframe helper (optional, low opacity)
+    const wireMat = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0.07 });
+    const wire = new THREE.Mesh(geometry, wireMat);
+    mesh.add(wire);
+
+    // --- Deformation engine ---
+    function applyDeformation() {
+      const preset = document.getElementById('preset').value;
+      const strength = parseFloat(document.getElementById('strength').value);
+      const freq = parseFloat(document.getElementById('freq').value);
+      const falloff = parseFloat(document.getElementById('falloff').value);
+      const t = performance.now() * 0.001;
+
+      const pos = geometry.attributes.position;
+      const arr = pos.array;
+
+      for (let i = 0; i < arr.length; i += 3) {
+        // restore original first
+        arr[i]     = originalPositions[i];
+        arr[i + 1] = originalPositions[i + 1];
+        arr[i + 2] = originalPositions[i + 2];
+
+        let x = arr[i], y = arr[i+1], z = arr[i+2];
+        let dx = 0, dy = 0, dz = 0;
+
+        if (preset === 'sine') {
+          const wave = Math.sin(x * freq + t) * Math.cos(z * freq * 0.7);
+          dy = wave * strength;
+        }
+        else if (preset === 'radial') {
+          const r = Math.sqrt(x*x + z*z);
+          const bulge = Math.exp(-r * r * falloff) * strength;
+          dy = bulge;
+          // slight outward push
+          const len = Math.sqrt(x*x + z*z) || 0.0001;
+          dx = (x / len) * bulge * 0.3;
+          dz = (z / len) * bulge * 0.3;
+        }
+        else if (preset === 'twist') {
+          const angle = y * freq * strength * 2.5;
+          const cos = Math.cos(angle);
+          const sin = Math.sin(angle);
+          const nx = x * cos - z * sin;
+          const nz = x * sin + z * cos;
+          dx = nx - x;
+          dz = nz - z;
+        }
+        else if (preset === 'bend') {
+          // polynomial bend around Y
+          const bend = Math.pow(Math.abs(y), falloff) * strength * (y >= 0 ? 1 : -1);
+          dx = bend * 0.8;
+        }
+        else if (preset === 'sphere') {
+          // push vertices toward sphere of radius ~0.9
+          const len = Math.sqrt(x*x + y*y + z*z) || 0.0001;
+          const target = 0.95;
+          const factor = (target - len) * strength;
+          dx = (x / len) * factor;
+          dy = (y / len) * factor;
+          dz = (z / len) * factor;
+        }
+        else if (preset === 'noise') {
+          // cheap math "noise" using layered sines
+          const n = Math.sin(x*freq + t) * Math.cos(y*freq*1.3) * Math.sin(z*freq*0.8)
+                  + 0.5 * Math.sin(x*freq*2.1 + z*3) * Math.cos(y*freq*1.7);
+          const amp = n * strength * 0.35;
+          // displace along approximate normal (from center)
+          const len = Math.sqrt(x*x + y*y + z*z) || 0.0001;
+          dx = (x / len) * amp;
+          dy = (y / len) * amp;
+          dz = (z / len) * amp;
+        }
+        else if (preset === 'custom') {
+          try {
+            // safe-ish eval with limited scope
+            const fn = new Function('x', 'y', 'z', 't', 'return (' + document.getElementById('formula').value + ');');
+            const disp = fn(x, y, z, t);
+            if (typeof disp === 'number' && isFinite(disp)) {
+              const len = Math.sqrt(x*x + y*y + z*z) || 0.0001;
+              dx = (x / len) * disp * strength;
+              dy = (y / len) * disp * strength;
+              dz = (z / len) * disp * strength;
+            }
+          } catch (e) {
+            // ignore bad formula for now
+          }
+        }
+
+        arr[i]     += dx;
+        arr[i + 1] += dy;
+        arr[i + 2] += dz;
+      }
+
+      pos.needsUpdate = true;
+      geometry.computeVertexNormals();
+    }
+
+    // --- UI wiring ---
+    const presetSelect = document.getElementById('preset');
+    const customDiv = document.getElementById('custom-formula');
+
+    presetSelect.addEventListener('change', () => {
+      customDiv.style.display = presetSelect.value === 'custom' ? 'block' : 'none';
+      applyDeformation();
+    });
+
+    ['strength', 'freq', 'falloff'].forEach(id => {
+      const el = document.getElementById(id);
+      const valEl = document.getElementById(id + '-val');
+      el.addEventListener('input', () => {
+        valEl.textContent = parseFloat(el.value).toFixed(2);
+        applyDeformation();
+      });
+    });
+
+    document.getElementById('apply').addEventListener('click', applyDeformation);
+    document.getElementById('formula').addEventListener('input', () => {
+      if (presetSelect.value === 'custom') applyDeformation();
+    });
+
+    document.getElementById('reset').addEventListener('click', () => {
+      presetSelect.value = 'none';
+      customDiv.style.display = 'none';
+      document.getElementById('strength').value = 0.25;
+      document.getElementById('freq').value = 2.0;
+      document.getElementById('falloff').value = 1.0;
+      document.getElementById('strength-val').textContent = '0.25';
+      document.getElementById('freq-val').textContent = '2.00';
+      document.getElementById('falloff-val').textContent = '1.00';
+      applyDeformation();
+    });
+
+    document.getElementById('export').addEventListener('click', () => {
+      const exporter = new OBJExporter();
+      const result = exporter.parse(mesh);
+      const blob = new Blob([result], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sculpted-clay-box.obj';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Animate (for time-based formulas)
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      // re-apply if using time-dependent presets so they animate
+      const p = presetSelect.value;
+      if (p === 'sine' || p === 'noise' || p === 'custom') {
+        applyDeformation();
+      }
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // initial
+    applyDeformation();
+  </script>
+</body>
+</html>
